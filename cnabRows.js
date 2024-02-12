@@ -2,24 +2,28 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
+import { dirname } from 'path';
 import fs from 'fs'
 
 import yargs from 'yargs'
 import chalk from 'chalk'
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const optionsYargs = yargs(process.argv.slice(2))
   .usage('Uso: $0 [options]')
-  .option("f", { alias: "from", describe: "posição inicial de pesquisa da linha do Cnab", type: "number", demandOption: true })
-  .option("t", { alias: "to", describe: "posição final de pesquisa da linha do Cnab", type: "number", demandOption: true })
+  .option("f", { alias: "from", describe: "posição inicial de pesquisa da linha do Cnab", type: "number" })
+  .option("t", { alias: "to", describe: "posição final de pesquisa da linha do Cnab", type: "number" })
   .option("s", { alias: "segment", describe: "tipo de segmento", type: "string" })
   .option("n", { alias: "companyName", describe: "nome da empresa de pesquisa da linha do Cnab", type: "string" })
   .option("a", { alias: "archive", describe: "caminho do arquivo Cnab", type: "string", demandOption: true })
-  .check(argv => {
-    if (!argv.companyName && !argv.segment) {
-      throw new Error('A opção "segment" é obrigatória se "companyName" não for fornecido.');
-    }
-    return true;
-  })
+  // .check(argv => {
+  //   if (!argv.companyName && !argv.segment) {
+  //     throw new Error('A opção "segment" é obrigatória se "companyName" não for fornecido.');
+  //   }
+  //   return true;
+  // })
   .example('$0 -f 21 -t 34 -s p -n "NomeEmpresa" -a ./caminho/do/seu/arquivo.cnab', 'lista a linha e campo que from e to do cnab')
   .argv;
 
@@ -28,6 +32,8 @@ const { from, to, segment, companyName, archive = '' } = optionsYargs
 const filePath = path.isAbsolute(archive) ? archive : path.resolve(fileURLToPath(import.meta.url), archive)
 
 const sliceArrayPosition = (arr, ...positions) => [...arr].slice(...positions)
+
+const getCnabBySegment = (arr, segment) => arr.filter((i) => i.split(' ')[0].substring(13).toLowerCase() == segment.toLowerCase())
 
 const messageLog = (segment, segmentType, from, to) => `
 ----- Cnab linha ${segmentType} -----
@@ -50,14 +56,9 @@ console.time('leitura Async')
 
 readFile(filePath, 'utf8')
   .then(file => {
-    const cnabArray = file.split('\n')
-
-    // const cnabHeader = sliceArrayPosition(cnabArray, 0, 2)
-
-    const cnabBodySegments = sliceArrayPosition(cnabArray, 2, -2)
-    const [cnabBodySegmentP, cnabBodySegmentQ, cnabBodySegmentR] = cnabBodySegments
-
-    // const cnabTail = sliceArrayPosition(cnabArray, -2)
+    const cnabArray = file.split('\r\n')
+        
+    const cnabBodySegments = sliceArrayPosition(cnabArray, 2, -2)    
 
     if (companyName) {
       const companyNameStart = 33;
@@ -67,13 +68,17 @@ readFile(filePath, 'utf8')
 
       const companyNameRegex = new RegExp(companyName, 'i');
       const companies = [];
+      
+      //linhas com company name são do segmento Q (VALIDAR)
+      const cnabBySegment = getCnabBySegment(cnabBodySegments, 'Q')
 
-      cnabBodySegments.forEach((segment) => {
-        const match = segment.match(companyNameRegex);
-
+      cnabBySegment.forEach((segment) => {
+        const company = segment.substring(companyNameStart, companyNameEnd);
+        const match = company.match(companyNameRegex);
+        
         if (match) {
-          const matchStartPosition = match.index + 1;
-          const matchEndPosition = matchStartPosition + match[0].length - 1;
+          const matchStartPosition = match.index + 33;
+          const matchEndPosition = matchStartPosition + match[0].length;
 
           const segmentInitialCode = segment.split(' ')[0];
           const segmentType = segmentInitialCode[segmentInitialCode.length - 1];
@@ -86,27 +91,15 @@ readFile(filePath, 'utf8')
           companies.push({ name: companyName, address: companyAddress });
 
           const jsonCompanies = JSON.stringify(companies, null, 2);
-
-          const jsonFilePath = path.join(new URL('.', import.meta.url).pathname, 'companies.json');
-
-          fs.writeFileSync(jsonFilePath, jsonCompanies, 'utf-8');
+          
+          const jsonFilePath = path.join(__dirname, 'companies.json');
+          fs.writeFileSync(jsonFilePath, jsonCompanies, { flag: 'w' });
         }
       });
     } else {
-      if (segment === 'p') {
-        log(messageLog(cnabBodySegmentP, 'P', from, to))
-        return
-      }
-  
-      if (segment === 'q') {
-        log(messageLog(cnabBodySegmentQ, 'Q', from, to))
-        return
-      }
-  
-      if (segment === 'r') {
-        log(messageLog(cnabBodySegmentR, 'R', from, to))
-        return
-      }
+      const cnabBySegment = getCnabBySegment(cnabBodySegments, segment)
+      cnabBySegment.map((item) => log(messageLog(item, segment, from, to)))
+      return;
     }
   })
   .catch(error => {

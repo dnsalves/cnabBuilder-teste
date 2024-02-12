@@ -59,5 +59,3 @@ node cnabRows.js -f 1 -t 34 -s "p" -a ../cnabExample.rem
 
 node cnabRows.js -f 1 -t 34 -s p -n "BRASIL" -a ../cnabExample.rem
 ```
-
-```bash
